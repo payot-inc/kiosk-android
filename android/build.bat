@@ -11,16 +11,10 @@ rem    build.bat release         release build
 rem    build.bat debug assets    embedded static build (assets/www)
 rem    build.bat debug http://192.168.0.10:3000   custom default URL
 rem
-rem  BUILD_MODE:
-rem    native  (default) - gradlew.bat (pinned 8.14) or PATH gradle + Android SDK
-rem    docker            - build via android/Dockerfile (Docker Desktop)
-rem
+rem  Builds natively with the pinned gradle wrapper (8.14) + Android SDK.
 rem  Called remotely by scripts/build-android-win.sh. Standalone use OK
 rem  (run from c:\build\android-kiosk).
 rem ============================================================
-
-set "BUILD_MODE=native"
-set "IMAGE=kiosk-android-builder"
 
 set "VARIANT=%~1"
 if "%VARIANT%"=="" set "VARIANT=debug"
@@ -41,25 +35,13 @@ if not "%KIOSK_URL%"=="" set "GRADLE_ARGS=%GRADLE_ARGS% -PkioskUrl=%KIOSK_URL%"
 rem move to this script's dir (= android project root)
 cd /d "%~dp0"
 
-if /i "%BUILD_MODE%"=="docker" (
-  echo ==^> building docker image ^(first run only^)
-  docker build --platform linux/amd64 -t "%IMAGE%" . || exit /b 1
-
-  echo ==^> gradle %TASK% ^(docker^)
-  docker run --rm --platform linux/amd64 ^
-    -v "%CD%:/workspace" ^
-    -v kiosk-gradle-cache:/root/.gradle ^
-    -w /workspace ^
-    "%IMAGE%" gradle %GRADLE_ARGS% || exit /b 1
+rem prefer the pinned gradle wrapper; fall back to PATH gradle
+if exist "gradlew.bat" (
+  echo ==^> gradlew %TASK%
+  call gradlew.bat %GRADLE_ARGS% || exit /b 1
 ) else (
-  rem prefer the pinned gradle wrapper; fall back to PATH gradle
-  if exist "gradlew.bat" (
-    echo ==^> gradlew %TASK% ^(native^)
-    call gradlew.bat %GRADLE_ARGS% || exit /b 1
-  ) else (
-    echo ==^> gradle %TASK% ^(native, PATH^)
-    call gradle %GRADLE_ARGS% || exit /b 1
-  )
+  echo ==^> gradle %TASK% ^(PATH^)
+  call gradle %GRADLE_ARGS% || exit /b 1
 )
 
 rem copy artifact to output\android (retrieved by the Mac side)
