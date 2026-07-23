@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 카드 모양 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,40 h48 a4,4 0 0 1 4,4 v22 a4,4 0 0 1 -4,4 h-48 a4,4 0 0 1 -4,-4 v-22 a4,4 0 0 1 4,-4 z" />
+    <path
+        android:fillColor="#1E293B"
+        android:pathData="M26,46 h56 v6 h-56 z" />
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M32,58 h16 v6 h-16 z" />
+</vector>

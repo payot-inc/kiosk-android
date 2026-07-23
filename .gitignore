@@ -1,0 +1,18 @@
+# 빌드 산출물 (./android/build.sh, ./windows/build.sh, ./scripts/build-android-win.sh)
+output/
+release/
+
+# Android/Gradle
+android/build/
+android/app/build/
+android/.gradle/
+android/app/src/main/assets/www/
+
+# Nuxt / node
+nuxt/node_modules/
+nuxt/.output/
+nuxt/.nuxt/
+
+# OS
+.DS_Store
+.background

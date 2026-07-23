@@ -1,0 +1,18 @@
+{
+  "_comment": "키오스크 자동 업데이트 매니페스트. GitHub 릴리스의 에셋으로 kiosk-release.apk 와 함께 올라간다. 앱은 .../releases/latest 를 주기적으로 확인해 이 파일을 읽고, android.versionCode 가 설치된 것보다 높으면 같은 릴리스의 'apk' 이름 에셋을 받아 설치한다. (URL 이 아니라 에셋 이름으로 참조 — 비공개 저장소 인증 다운로드를 위해) 이 파일은 .github/workflows/release.yml 이 태그 push 시 자동 생성하므로 손으로 만들 필요는 없다.",
+
+  "android": {
+    "versionCode": 2,
+    "versionName": "0.2.0",
+    "apk": "kiosk-release.apk",
+    "sha256": "",
+    "notes": "지폐기 안정성 개선"
+  },
+
+  "windows": {
+    "version": "0.2.0",
+    "setup": "KioskShell-Setup-0.2.0.exe",
+    "sha256": "",
+    "notes": "원격 관리 사이드카 추가"
+  }
+}

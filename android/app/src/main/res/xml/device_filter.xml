@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 지폐기: WCH CH340 계열 USB-Serial (vid 0x1A86 = 6790) -->
+    <usb-device vendor-id="6790" />
+</resources>

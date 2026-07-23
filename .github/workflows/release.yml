@@ -1,0 +1,86 @@
+name: release-android
+
+# v* 태그를 push 하면 릴리스 APK 를 빌드해 GitHub 릴리스로 발행한다.
+#   예)  git tag v0.2.0 && git push origin v0.2.0
+# 기기의 Updater 는 .../releases/latest 를 확인해 자동으로 이 릴리스를 받는다.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # 릴리스 생성/에셋 업로드
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 버전 계산
+        id: ver
+        run: |
+          # 태그 v0.2.0 -> versionName 0.2.0,  versionCode 는 단조 증가하는 실행번호
+          echo "name=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          echo "code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 빌더 이미지 (레이어 캐시)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./android
+          file: ./android/Dockerfile
+          tags: kiosk-android-builder:latest
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: release APK 빌드
+        env:
+          # 비공개 저장소 릴리스를 기기가 받기 위한 읽기 전용 PAT (APK 에 내장됨)
+          UPDATE_TOKEN: ${{ secrets.KIOSK_UPDATE_TOKEN }}
+          # 운영 웹 URL. 저장소 Variables 에 KIOSK_URL 설정. 비우면 build.gradle 기본값.
+          KIOSK_URL: ${{ vars.KIOSK_URL }}
+        run: |
+          set -euo pipefail
+          ARGS=(assembleRelease --no-daemon
+            "-PappVersionCode=${{ steps.ver.outputs.code }}"
+            "-PappVersionName=${{ steps.ver.outputs.name }}"
+            "-PupdateUrl=https://api.github.com/repos/${{ github.repository }}/releases/latest"
+            "-PupdateToken=${UPDATE_TOKEN}")
+          if [ -n "${KIOSK_URL}" ]; then ARGS+=("-PkioskUrl=${KIOSK_URL}"); fi
+          docker run --rm \
+            -v "$PWD/android:/workspace" \
+            -w /workspace \
+            kiosk-android-builder:latest gradle "${ARGS[@]}"
+
+      - name: 산출물 + manifest 준비
+        id: out
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk dist/kiosk-release.apk
+          SHA=$(sha256sum dist/kiosk-release.apk | cut -d' ' -f1)
+          cat > dist/manifest.json <<EOF
+          {
+            "android": {
+              "versionCode": ${{ steps.ver.outputs.code }},
+              "versionName": "${{ steps.ver.outputs.name }}",
+              "apk": "kiosk-release.apk",
+              "sha256": "${SHA}",
+              "notes": "${GITHUB_REF_NAME}"
+            }
+          }
+          EOF
+
+      - name: GitHub 릴리스 발행
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/kiosk-release.apk \
+            dist/manifest.json \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "versionCode ${{ steps.ver.outputs.code }} · versionName ${{ steps.ver.outputs.name }}"

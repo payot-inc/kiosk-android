@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 자가 업데이트: 다운로드한 APK 설치 (install.sh 가 appops 로 자동 허용) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 부팅 직후/백그라운드에서 액티비티를 띄우기 위한 권한.
+         install.sh 가 appops 로 자동 허용한다 (Android 10+ 백그라운드 실행 제한 우회) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 크래시 후 자동 재실행 알람 (사이드로드 키오스크라 설치 시 자동 부여) -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- 홈 배너: 운영자가 파일관리자로 /sdcard/KioskBanner 에 이미지를 넣을 수 있게
+         전체 파일 접근 (Android 11+ 에선 Android/data 가 파일앱에서 막혀 공용폴더+이 권한 필요).
+         install.sh 가 appops 로 자동 허용한다. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
+
+    <!-- Android 11+ 패키지 가시성: EasyCardA 로 명시적 브로드캐스트를 보내기 위해 필요 -->
+    <queries>
+        <package android:name="kr.co.kicc.easycarda" />
+    </queries>
+
+    <application
+        android:name=".KioskApp"
+        android:label="Kiosk"
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true"
+        android:supportsRtl="false"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar.Fullscreen">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <!-- 진짜 키오스크(홈 런처) 모드로 쓰려면 아래 주석을 풀고 재설치 후
+                     홈 버튼을 눌러 기본 런처로 지정:
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+                -->
+            </intent-filter>
+
+            <!-- 지폐기(CH340) USB 연결 시 권한 자동 부여 + 앱 실행 -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
+        </activity>
+
+        <!-- 부팅 시 자동 실행 (보드/펌웨어에 따라 백그라운드 액티비티 제한으로 막힐 수 있음.
+             확실한 방법은 위의 HOME 런처 모드) -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 크론(예약 작업) 알람 수신. 앱 내부 알람 PendingIntent 전용이라 비공개. -->
+        <receiver
+            android:name=".CronReceiver"
+            android:exported="false" />
+    </application>
+</manifest>
