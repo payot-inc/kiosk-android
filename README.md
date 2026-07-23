@@ -59,37 +59,16 @@ NUXT_PORT=3300 ./android/install.sh   # 장비의 localhost:3000 → PC:3300 으
 Android SDK 에뮬레이터로 실기기 없이 UI/웹 흐름을 테스트할 수 있다.
 
 ```bash
-# kiosk AVD(가상머신) + 실물 지폐기 브리지(adb reverse 포함)를 함께 실행 (부팅 대기 후 반환, 백그라운드 유지)
-./android/emu.sh          # 에뮬 + 실물 시리얼 브리지 (Mac에 꽂힌 지폐기)
-BILL=off ./android/emu.sh   # 에뮬만 (지폐기 브리지 없이)
+# kiosk AVD(가상머신) 실행
+emulator -avd kiosk        # 별도 터미널에서 실행 (부팅될 때까지 대기)
 
-# 부팅되면 실기기와 동일하게 빌드/설치 (install.sh 가 emulator-5554 를 자동 대상으로 잡는다)
-./android/build.sh        # 코드 변경 없으면 생략 가능 (기존 APK 재사용)
+# 부팅되면 실기기와 동일하게 설치 (install.sh 가 emulator-5554 를 자동 대상으로 잡는다)
 ./android/install.sh
 ```
 
-`emu.sh` 는 `kiosk` AVD 를 고정 실행하고, 부팅되면 **`adb reverse`(6790/3000) 바인딩 + 실물 지폐기 브리지를
-자동으로 함께 띄운다**. 에뮬/브리지 모두 이미 떠 있으면 재사용하므로 여러 번 불러도 안전하다.
-AVD 목록은 `./android/emu.sh -l`, 다른 AVD 는 `./android/emu.sh <이름>`. watcher 로그: `/tmp/kiosk-bill-watch.log`.
+AVD 목록은 `emulator -list-avds`, 다른 AVD 는 `emulator -avd <이름>`.
 
-#### 지폐기 (에뮬레이터)
-
-에뮬레이터는 호스트 USB를 직접 못 잡으므로, **DEBUG 빌드**는 USB 장치가 없으면
-`127.0.0.1:6790`(adb reverse → Mac) 소켓 브리지로 폴백해 **Mac에 꽂힌 실물 지폐기를
-그대로 사용**한다 ([BillAcceptor.kt](android/app/src/main/java/dev/payot/kiosk/BillAcceptor.kt) `connectSocket`).
-위 `emu.sh` 가 이 브리지를 자동으로 띄운다. **직접** 관리하려면 감시 스크립트를 별도 터미널에서 실행한다:
-
-```bash
-./scripts/bill-emu-watch.sh          # 에뮬 감지 → adb reverse(6790) + bill-bridge.py 자동 시작
-NUXT_PORT=3300 ./scripts/bill-emu-watch.sh   # nuxt dev 포트가 다를 때
-```
-
-watcher 가 살아 있는 한 에뮬을 껐다 켜도 자동으로 재연결된다 — watcher(또는 Mac)를 껐을 때만 다시 띄우면 된다.
-
-- 시리얼은 `/dev/cu.usbserial*`(CH340) 자동탐지 — 안 잡히면 `python3 scripts/bill-bridge.py --dev /dev/cu.xxxx`.
-- 브리지가 안 떠 있으면 앱이 6790 접속에 실패해 `지폐기(브리지) 연결 실패` 이벤트가 뜬다 (연결 전 이 스크립트부터 실행).
-- **에뮬레이터 재시작 금지**: 에뮬을 껐다 켜면 브리지가 갈리며 앱의 소켓이 끊긴다. 그래도
-  전송 실패 시 앱이 연결을 자동 정리하므로 지폐기 **재연결**만 다시 누르면 복구된다.
+> 지폐기(시리얼)는 Mac 에뮬레이터에서 테스트하지 않는다 — 실기기에서만 검증한다.
 
 #### 카드결제 (에뮬레이터 — 모의)
 
@@ -102,7 +81,7 @@ watcher 가 살아 있는 한 에뮬을 껐다 켜도 자동으로 재연결된�
 - DEBUG 에서는 `getInfo().easyCardInstalled` 가 `true` 로 보고돼 웹의 카드 UI 가 열린다.
 - 운영(release) 빌드는 모의를 쓰지 않는다 — 실제 EasyCardA 앱이 없으면 오류를 돌려준다.
 
-> 이 저장소의 `nuxt/` 웹을 쓰지 않고 별도 웹을 붙여도, 카드 모의와 지폐기 브리지는
+> 이 저장소의 `nuxt/` 웹을 쓰지 않고 별도 웹을 붙여도, 카드 모의는
 > **네이티브(APK) 레벨**이라 그대로 동작한다 (플랫폼 감지는 `window.android` 존재로).
 
 자주 쓰면 PATH 에 등록해두면 `emulator -avd kiosk` 로 짧게 쓸 수 있다:
