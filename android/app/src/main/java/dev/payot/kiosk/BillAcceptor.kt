@@ -89,8 +89,10 @@ class BillAcceptor(
             emitError("USB 시리얼 장치를 찾을 수 없습니다")
             return
         }
-        // CH340(vid 0x1A86) 우선, 없으면 첫 번째 장치
-        val driver = drivers.firstOrNull { it.device.vendorId == VID_CH340 } ?: drivers.first()
+        // CH340(vid 0x1A86) 지폐기만 연결한다. 없으면 다른 USB 시리얼(예: FTDI 카드리더)을
+        // 지폐기로 오인/점유하지 않도록 여기서 중단한다.
+        val driver = drivers.firstOrNull { it.device.vendorId == VID_CH340 }
+            ?: run { emitError("지폐기(CH340)를 찾을 수 없습니다"); return }
         val device = driver.device
 
         if (!usbManager.hasPermission(device)) {
