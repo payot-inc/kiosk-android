@@ -16,3 +16,5 @@ nuxt/.nuxt/
 # OS
 .DS_Store
 .background
+# 서명 키는 저장소에 두지 않는다 (GitHub Secret 으로 주입)
+android/keystore/*.keystore

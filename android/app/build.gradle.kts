@@ -21,23 +21,12 @@ val updateToken: String = (project.findProperty("updateToken") as String?) ?: ""
 val appVersionCode: Int = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 1
 val appVersionName: String = (project.findProperty("appVersionName") as String?) ?: "0.1.0"
 
-val keystoreFile = rootProject.file("keystore/kiosk.keystore")
-
-// 서명 키가 없으면 자동 생성. 같은 키로 계속 서명해야 adb install -r 갱신이 되므로
-// 생성된 keystore/ 는 저장소에 커밋해 팀 전체가 공유한다. (개발용 키 — 스토어 배포용 아님)
-val generateKeystore = tasks.register<Exec>("generateKeystore") {
-    onlyIf { !keystoreFile.exists() }
-    doFirst { keystoreFile.parentFile.mkdirs() }
-    commandLine(
-        "keytool", "-genkeypair", "-v",
-        "-keystore", keystoreFile.absolutePath,
-        "-alias", "kiosk",
-        "-keyalg", "RSA", "-keysize", "2048",
-        "-validity", "10950",
-        "-storepass", "kioskpass", "-keypass", "kioskpass",
-        "-dname", "CN=Kiosk Dev, O=Payot, C=KR"
-    )
-}
+// 릴리스 서명: 저장소에 키/비밀번호를 두지 않는다. CI 가 GitHub Secret 에서 프로퍼티로 주입하고
+// (release.yml), 로컬 릴리스 빌드 시엔 ~/.gradle/gradle.properties 나 -P 로 지정한다.
+//   RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD
+// 프로퍼티가 없으면(예: 로컬 debug 빌드) release 는 서명되지 않는다.
+val releaseStoreFile = (project.findProperty("RELEASE_STORE_FILE") as String?)?.let { file(it) }
+val hasReleaseSigning = releaseStoreFile?.exists() == true
 
 android {
     namespace = "dev.payot.kiosk"
@@ -55,21 +44,23 @@ android {
     }
 
     signingConfigs {
-        create("shared") {
-            storeFile = keystoreFile
-            storePassword = "kioskpass"
-            keyAlias = "kiosk"
-            keyPassword = "kioskpass"
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = releaseStoreFile
+                storePassword = (project.findProperty("RELEASE_STORE_PASSWORD") as String?)
+                keyAlias = (project.findProperty("RELEASE_KEY_ALIAS") as String?)
+                keyPassword = (project.findProperty("RELEASE_KEY_PASSWORD") as String?)
+            }
         }
     }
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("shared")
+            // 기본 Android 디버그 키로 서명 (로컬/시크릿 불필요). adb install -r 는 같은 PC에서 유지됨.
         }
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("shared")
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
         }
     }
 
@@ -85,8 +76,6 @@ android {
         jvmTarget = "17"
     }
 }
-
-tasks.named("preBuild") { dependsOn(generateKeystore) }
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
