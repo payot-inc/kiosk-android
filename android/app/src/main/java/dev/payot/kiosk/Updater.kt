@@ -35,7 +35,6 @@ import java.util.concurrent.TimeUnit
  */
 object Updater {
     private const val TAG = "Updater"
-    private const val CHECK_INTERVAL_HOURS = 6L
     private const val INSTALL_ACTION = "dev.payot.kiosk.INSTALL_RESULT"
 
     private val scheduler = Executors.newSingleThreadScheduledExecutor { r ->
@@ -43,15 +42,19 @@ object Updater {
     }
     @Volatile private var started = false
 
-    /** 앱 시작 시 1회 호출 — 즉시 1차 확인 후 주기 반복 */
+    /**
+     * 앱 시작 시 1회만 확인한다(부팅/재기동 직후 10초 뒤). 주기 재확인을 하지 않으므로
+     * 손님 이용 중(거래 중)에 갑자기 업데이트가 끼어들지 않는다. 새 버전은 다음 앱
+     * 재시작 때 반영된다.
+     */
     fun start(context: Context) {
         if (BuildConfig.UPDATE_URL.isBlank() || started) return
         started = true
         val app = context.applicationContext
         registerInstallReceiver(app)
-        scheduler.scheduleWithFixedDelay(
+        scheduler.schedule(
             { runCatching { checkAndInstall(app) }.onFailure { Log.w(TAG, "업데이트 확인 실패", it) } },
-            10, CHECK_INTERVAL_HOURS * 3600, TimeUnit.SECONDS
+            10, TimeUnit.SECONDS
         )
     }
 
