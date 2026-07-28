@@ -72,5 +72,18 @@
         <receiver
             android:name=".CronReceiver"
             android:exported="false" />
+
+        <!-- device owner 지정용. owner 가 되면 Updater 가 무음으로 자가 설치한다. -->
+        <receiver
+            android:name=".DeviceAdmin"
+            android:permission="android.permission.BIND_DEVICE_ADMIN"
+            android:exported="true">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

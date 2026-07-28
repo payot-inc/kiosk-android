@@ -1,9 +1,12 @@
 package dev.payot.kiosk
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageInstaller
 import android.util.Log
+import androidx.core.content.ContextCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -45,9 +48,38 @@ object Updater {
         if (BuildConfig.UPDATE_URL.isBlank() || started) return
         started = true
         val app = context.applicationContext
+        registerInstallReceiver(app)
         scheduler.scheduleWithFixedDelay(
             { runCatching { checkAndInstall(app) }.onFailure { Log.w(TAG, "업데이트 확인 실패", it) } },
             10, CHECK_INTERVAL_HOURS * 3600, TimeUnit.SECONDS
+        )
+    }
+
+    /**
+     * PackageInstaller 세션 결과 수신. device owner 면 무음 설치되어 STATUS_SUCCESS 가 오고,
+     * 아니면 STATUS_PENDING_USER_ACTION 이 와서 시스템 설치 확인창을 띄운다(폴백).
+     */
+    private fun registerInstallReceiver(app: Context) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                when (val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, Int.MIN_VALUE)) {
+                    PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+                        @Suppress("DEPRECATION")
+                        val confirm = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
+                        confirm?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        runCatching { ctx.startActivity(confirm) }
+                            .onFailure { Log.w(TAG, "설치 확인창 실행 실패", it) }
+                    }
+                    PackageInstaller.STATUS_SUCCESS ->
+                        Log.i(TAG, "설치 성공 (무음)")
+                    else ->
+                        Log.w(TAG, "설치 실패 status=$status ${intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)}")
+                }
+            }
+        }
+        ContextCompat.registerReceiver(
+            app, receiver, IntentFilter(INSTALL_ACTION),
+            ContextCompat.RECEIVER_NOT_EXPORTED
         )
     }
 
