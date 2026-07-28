@@ -1,6 +1,0 @@
-# NSIS 설치파일 빌더 — makensis 리눅스 패키지로 윈도우 Setup.exe를 크로스 컴파일한다.
-FROM debian:bookworm-slim
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends nsis \
-    && rm -rf /var/lib/apt/lists/*
-WORKDIR /work
