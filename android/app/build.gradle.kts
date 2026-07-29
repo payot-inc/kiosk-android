@@ -10,8 +10,8 @@ plugins {
 //  값 종류: "assets"(내장 정적빌드 assets/www) | "http://..."(원격 URL)
 //  ※ 이 값은 '기본값'일 뿐이며, 기기에 저장된 URL(SharedPreferences)이 있으면 그게 우선.
 val kioskUrlOverride: String? = project.findProperty("kioskUrl") as String?
-val devKioskUrl = "http://192.168.199.63:4050"   // 개발(debug) 기본
-val releaseKioskUrl = "assets"                    // 릴리스 기본(운영 URL 은 CI 가 주입)
+val devKioskUrl = "http://192.168.199.63:4050"        // 개발(debug) 기본
+val releaseKioskUrl = "https://app.coin-machine.com"  // 운영(release) 기본
 
 // 자동 업데이트: GitHub 릴리스 API(.../releases/latest) URL. 빌드 시 -PupdateUrl=... 로 설정.
 // 비우면 자동 업데이트 비활성. (릴리스 워크플로가 자동으로 주입한다)
