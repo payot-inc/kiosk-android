@@ -3,11 +3,15 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// WebView 기본 URL. 빌드 시 -PkioskUrl=... 로 변경 가능.
-//  - "http://localhost:5090" : PC의 로컬 웹 개발서버 (adb reverse tcp:5090 tcp:5090 필요)
-//  - "assets"                : 앱에 내장된 정적 빌드 (android/app/src/main/assets/www)
-//  - 그 외                    : 임의의 원격 URL
-val kioskUrl: String = (project.findProperty("kioskUrl") as String?) ?: "assets"
+// WebView 기본 URL. 우선순위: -PkioskUrl=... > 빌드타입별 기본값.
+//   debug   → 개발 서버(devKioskUrl)
+//   release → releaseKioskUrl("assets"). 운영은 CI(release.yml)가 vars.KIOSK_URL 을
+//             -PkioskUrl 로 주입해 https://app.coin-machine.com 이 박힌다.
+//  값 종류: "assets"(내장 정적빌드 assets/www) | "http://..."(원격 URL)
+//  ※ 이 값은 '기본값'일 뿐이며, 기기에 저장된 URL(SharedPreferences)이 있으면 그게 우선.
+val kioskUrlOverride: String? = project.findProperty("kioskUrl") as String?
+val devKioskUrl = "http://192.168.199.63:4050"   // 개발(debug) 기본
+val releaseKioskUrl = "assets"                    // 릴리스 기본(운영 URL 은 CI 가 주입)
 
 // 자동 업데이트: GitHub 릴리스 API(.../releases/latest) URL. 빌드 시 -PupdateUrl=... 로 설정.
 // 비우면 자동 업데이트 비활성. (릴리스 워크플로가 자동으로 주입한다)
@@ -38,7 +42,7 @@ android {
         targetSdk = 34
         versionCode = appVersionCode
         versionName = appVersionName
-        buildConfigField("String", "KIOSK_URL", "\"$kioskUrl\"")
+        // KIOSK_URL 은 빌드타입별로 지정(아래 buildTypes)
         buildConfigField("String", "UPDATE_URL", "\"$updateUrl\"")
         buildConfigField("String", "UPDATE_TOKEN", "\"$updateToken\"")
     }
@@ -57,10 +61,12 @@ android {
     buildTypes {
         debug {
             // 기본 Android 디버그 키로 서명 (로컬/시크릿 불필요). adb install -r 는 같은 PC에서 유지됨.
+            buildConfigField("String", "KIOSK_URL", "\"${kioskUrlOverride ?: devKioskUrl}\"")
         }
         release {
             isMinifyEnabled = false
             if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
+            buildConfigField("String", "KIOSK_URL", "\"${kioskUrlOverride ?: releaseKioskUrl}\"")
         }
     }
 
