@@ -1,14 +1,17 @@
 package dev.payot.kiosk
 
 import android.content.Context
+import android.os.Environment
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
- * 원격 진단용 파일 로그 — 앱의 주요 이벤트(시작/크래시/업데이트/크론)를 filesDir/logs/
- * 에 하루 한 파일(kiosk-yyyy-MM-dd.log)로 남긴다. 매일 자동 회전하며 RETENTION_DAYS 일이
+ * 원격 진단용 파일 로그 — 앱의 주요 이벤트(시작/크래시/업데이트/크론)를 /sdcard/KioskLogs/
+ * 에 하루 한 파일(kiosk-yyyy-MM-dd.log)로 남긴다. 배너 폴더(/sdcard/KioskBanner)와 같은
+ * 레벨의 공용 폴더라 운영자가 파일관리자로 바로 꺼내볼 수 있다(MANAGE_EXTERNAL_STORAGE 필요).
+ * 매일 자동 회전하며 RETENTION_DAYS 일이
  * 지난 파일은 삭제한다(기본 15일). 폭주(크래시 루프 등)로 하루치가 커지는 것을 막기 위해
  * 파일당 MAX_BYTES_PER_DAY 를 넘으면 앞쪽(오래된) 절반을 잘라낸다.
  * 안드로이드는 HTTP 서버가 없으므로 웹은 window.android.getLogs() 브리지로 최근 로그를
@@ -29,11 +32,14 @@ object RemoteLog {
     private var file: File? = null
     private var currentDay: String? = null
 
-    /** Application.onCreate 에서 1회 호출 */
+    /**
+     * Application.onCreate 에서 1회 호출. context 는 현재 미사용이지만(공용 외부저장소 사용)
+     * 시그니처는 유지한다 — 권한 미부여 시 mkdirs 가 실패해도 write 가 조용히 스킵된다.
+     */
     fun init(context: Context) {
         if (dir != null) return
         runCatching {
-            dir = File(context.filesDir, "logs").apply { mkdirs() }
+            dir = File(Environment.getExternalStorageDirectory(), "KioskLogs").apply { mkdirs() }
         }
         synchronized(lock) { rollIfNeeded() }
     }
