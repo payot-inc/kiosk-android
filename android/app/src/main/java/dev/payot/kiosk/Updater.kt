@@ -1,10 +1,13 @@
 package dev.payot.kiosk
 
+import android.app.admin.DevicePolicyManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageInstaller
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.core.content.ContextCompat
 import org.json.JSONArray
@@ -40,7 +43,33 @@ object Updater {
     private val scheduler = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "kiosk-updater").apply { isDaemon = true }
     }
+    private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile private var started = false
+
+    /**
+     * device owner 가 아닌 기기에서 사용자 확인을 받기 위한 콜백. MainActivity 가 등록한다.
+     * (versionName, proceed) 를 받아 팝업을 띄우고, 사용자가 수락하면 proceed() 를 호출한다.
+     * 항상 메인 스레드에서 호출된다.
+     */
+    @Volatile private var promptHandler: ((String, () -> Unit) -> Unit)? = null
+
+    /** 아직 사용자에게 못 물어본(핸들러 없던) 다운로드 완료 업데이트 */
+    private class Pending(
+        val context: Context,
+        val apk: ByteArray,
+        val versionCode: Int,
+        val versionName: String,
+    )
+    @Volatile private var pending: Pending? = null
+
+    /**
+     * device owner 가 아닌 기기용 업데이트 확인 팝업 핸들러 등록(MainActivity.onCreate).
+     * 등록 시 보류 중인 업데이트가 있으면 즉시 물어본다.
+     */
+    fun setUpdatePrompt(handler: ((String, () -> Unit) -> Unit)?) {
+        promptHandler = handler
+        if (handler != null) pending?.let { promptPending(it) }
+    }
 
     /**
      * 앱 시작 시 1회만 확인한다(부팅/재기동 직후 10초 뒤). 주기 재확인을 하지 않으므로
@@ -110,7 +139,42 @@ object Updater {
         if (expected.isNotBlank() && !sha256Hex(apk).equals(expected, ignoreCase = true)) {
             Log.w(TAG, "sha256 불일치 — 설치를 취소한다"); return
         }
-        installApk(context, apk, latest)
+        maybeInstall(context, apk, latest, manifest.optString("versionName"))
+    }
+
+    /**
+     * device owner 면 무음 설치, 아니면 사용자 확인 팝업을 거쳐 설치한다.
+     *
+     * device owner 가 아닐 때 백그라운드에서 곧장 커밋하면, 시스템 설치 확인창이
+     * 백그라운드 액티비티 실행 제한에 걸려 즉시 취소(STATUS_FAILURE_ABORTED)된다.
+     * 그래서 반드시 사용자가 팝업을 누른 "포그라운드 시점"에 커밋해야 확인창이 정상적으로 뜬다.
+     */
+    private fun maybeInstall(context: Context, apk: ByteArray, versionCode: Int, versionName: String) {
+        val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+        if (dpm?.isDeviceOwnerApp(context.packageName) == true) {
+            Log.i(TAG, "device owner — 무음 설치")
+            installApk(context, apk, versionCode)
+            return
+        }
+        // 사용자 확인이 필요한 기기: 보류에 담고, 화면(핸들러)이 있으면 바로 물어본다.
+        val p = Pending(context, apk, versionCode, versionName)
+        pending = p
+        if (promptHandler != null) promptPending(p)
+        else Log.i(TAG, "표시할 화면 없음 — 다음 실행 때 업데이트 확인 팝업 표시")
+    }
+
+    /** 보류 업데이트를 메인 스레드에서 팝업으로 물어본다. 수락 시 그 시점에 설치를 커밋한다. */
+    private fun promptPending(p: Pending) {
+        val handler = promptHandler ?: return
+        mainHandler.post {
+            handler(p.versionName) {
+                pending = null
+                scheduler.execute {
+                    runCatching { installApk(p.context, p.apk, p.versionCode) }
+                        .onFailure { Log.w(TAG, "설치 커밋 실패", it) }
+                }
+            }
+        }
     }
 
     /** 릴리스 assets 배열에서 이름이 일치하는 에셋의 API 다운로드 URL 을 찾는다 */

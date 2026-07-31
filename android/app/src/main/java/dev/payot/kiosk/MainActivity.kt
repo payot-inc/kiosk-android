@@ -152,7 +152,27 @@ class MainActivity : ComponentActivity() {
         intent.getStringExtra(EXTRA_URL)?.let(::saveUrl)
         webView.loadUrl(currentUrl())
 
+        // device owner 가 아닌 기기에서는 무음 설치가 안 되므로, 업데이트가 준비되면
+        // 이 팝업으로 사용자에게 확인을 받는다. (owner 기기는 이 콜백 없이 무음 설치)
+        Updater.setUpdatePrompt { versionName, proceed -> showUpdatePrompt(versionName, proceed) }
         Updater.start(this) // 사이드로드 자가 업데이트 (UPDATE_URL 설정 시)
+    }
+
+    /**
+     * 새 버전 감지 시 표시하는 업데이트 확인 팝업. [proceed] 를 호출하면 그 시점(포그라운드)에
+     * 설치가 커밋되어 시스템 설치 확인창이 뜬다. 항상 메인 스레드에서 호출된다.
+     */
+    private fun showUpdatePrompt(versionName: String, proceed: () -> Unit) {
+        if (isFinishing || isDestroyed) return
+        runCatching {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("업데이트 안내")
+                .setMessage("새 버전(${versionName})이 있습니다.\n지금 업데이트하시겠습니까?")
+                .setCancelable(false)
+                .setPositiveButton("업데이트") { _, _ -> proceed() }
+                .setNegativeButton("나중에", null)
+                .show()
+        }.onFailure { RemoteLog.w("업데이트 팝업 표시 실패: ${it.message}") }
     }
 
     override fun onNewIntent(intent: Intent) {
