@@ -91,6 +91,7 @@ class KioskBridge(private val activity: MainActivity, private val webView: WebVi
         put("appVersion", BuildConfig.VERSION_NAME)
         put("packageName", activity.packageName)
         put("url", activity.currentUrl())
+        put("rotation", activity.currentRotation())
         put("easyCardInstalled", card.isInstalled())
     }.toString()
 
@@ -155,6 +156,20 @@ class KioskBridge(private val activity: MainActivity, private val webView: WebVi
         activity.runOnUiThread { activity.applyUrl(url) }
     }
 
+    /**
+     * 화면 회전 보정 각도 설정(0/90/180/270, 그 외 값은 가장 가까운 90 배수로 스냅).
+     * 기본 0 = 보정 없음(가로 그대로). 세로 장착 기기는 90/270 중 바로 서는 쪽으로 지정한다.
+     * 즉시 적용 + 영구 저장(SharedPreferences).
+     */
+    @JavascriptInterface
+    fun setRotation(deg: Int) {
+        activity.runOnUiThread { activity.applyRotation(deg) }
+    }
+
+    /** 현재 화면 회전 보정 각도(0/90/180/270) 반환. */
+    @JavascriptInterface
+    fun getRotation(): Int = activity.currentRotation()
+
     // ---------- 카드결제 (KICC EasyCardA) ----------
 
     /**
@@ -169,8 +184,27 @@ class KioskBridge(private val activity: MainActivity, private val webView: WebVi
 
     // ---------- 지폐기 (USB 시리얼) ----------
 
+    /**
+     * 연결 가능한 USB 시리얼 장치 목록(JSON 배열 문자열). 각 원소:
+     *   { deviceId, vendorId, productId, productName, manufacturerName,
+     *     supported, driver, portCount, hasPermission, connected, isBillAcceptor }
+     * vendorId/productId 는 4자리 hex 문자열("1a86"), deviceId 는 연결 요청에 쓰는 정수다.
+     * deviceId 는 USB 를 다시 꽂으면 바뀌므로 저장하지 말고 매번 조회해서 쓴다.
+     */
+    @JavascriptInterface
+    fun billListDevices(): String = bill.listDevices().toString()
+
+    /** 지폐기(CH340) 자동 탐색 후 연결. 결과는 kiosk:bill-connection / kiosk:bill-error 로 통보. */
     @JavascriptInterface
     fun billConnect() = bill.connect()
+
+    /**
+     * billListDevices() 에서 고른 장치로 연결. VID 검사를 하지 않으므로 카드리더를 고르면
+     * 그대로 점유된다 — 선택 UI 에서 isBillAcceptor 로 구분해 주는 것을 전제로 한다.
+     * USB 권한이 없으면 시스템 권한창이 뜨고, 승인되면 그 장치로 이어서 연결한다.
+     */
+    @JavascriptInterface
+    fun billConnectDevice(deviceId: Int) = bill.connect(deviceId)
 
     @JavascriptInterface
     fun billDisconnect() = bill.disconnect()

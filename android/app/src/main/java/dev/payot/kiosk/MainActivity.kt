@@ -31,6 +31,13 @@ class MainActivity : ComponentActivity() {
         private const val PREF_URL = "kiosk_url"
         // "assets" 모드: 앱 내장 정적 웹 빌드(assets/www)를 로드
         private const val ASSETS_URL = "https://appassets.androidplatform.net/www/index.html"
+        // CSS 회전 각도(0/90/180/270). 기본 0 = 회전 없음(가로 그대로).
+        // 세로 장착 기기는 90 또는 270 으로 지정해야 콘텐츠가 바로 선다(어느 쪽인지는 장착 방향에 따라 다름).
+        // 웹에서 window.android.setRotation(270), 또는 설치 시 intent extra
+        // (--ei rotation 270) 로 기기별 지정 → SharedPreferences 영구 저장.
+        const val EXTRA_ROTATION = "rotation"
+        private const val PREF_ROTATION = "kiosk_rotation"
+        private const val DEFAULT_ROTATION_DEG = 0
     }
 
     private lateinit var webView: WebView
@@ -122,6 +129,7 @@ class MainActivity : ComponentActivity() {
 
             // 페이지 로드 완료(리스너 등록 끝) 시점에 밀린 크론 이벤트 전달
             override fun onPageFinished(view: WebView, url: String) {
+                injectPortraitRotation()
                 if (::bridge.isInitialized) bridge.deliverPendingCron()
             }
 
@@ -150,6 +158,9 @@ class MainActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this) { /* 키오스크: 뒤로가기 차단 */ }
 
         intent.getStringExtra(EXTRA_URL)?.let(::saveUrl)
+        // -1 = extra 없음. 0 을 넘겨 회전 보정을 끌 수 있어야 하므로 0 을 sentinel 로 쓰지 않는다.
+        intent.getIntExtra(EXTRA_ROTATION, -1).takeIf { it >= 0 }
+            ?.let { prefs().edit().putInt(PREF_ROTATION, normalizeRotation(it)).apply() }
         webView.loadUrl(currentUrl())
 
         // device owner 가 아닌 기기에서는 무음 설치가 안 되므로, 업데이트가 준비되면
@@ -181,6 +192,7 @@ class MainActivity : ComponentActivity() {
             saveUrl(it)
             webView.loadUrl(currentUrl())
         }
+        intent.getIntExtra(EXTRA_ROTATION, -1).takeIf { it >= 0 }?.let(::applyRotation)
     }
 
     override fun onResume() {
@@ -214,6 +226,19 @@ class MainActivity : ComponentActivity() {
         prefs().edit().putString(PREF_URL, url).apply()
     }
 
+    /** CSS 회전 각도(0/90/180/270). prefs 저장값 우선, 없으면 기본 0. */
+    fun currentRotation(): Int = prefs().getInt(PREF_ROTATION, DEFAULT_ROTATION_DEG)
+
+    /** 90도 단위로 정규화(0/90/180/270). 그 외 값은 가장 가까운 90의 배수로 스냅 후 [0,360) 로 감싼다. */
+    private fun normalizeRotation(deg: Int): Int =
+        ((Math.round(deg / 90.0).toInt() * 90) % 360 + 360) % 360
+
+    /** 회전 각도 변경(영구 저장) 후 현재 페이지에 즉시 재적용. 90도 단위로 정규화. */
+    fun applyRotation(deg: Int) {
+        prefs().edit().putInt(PREF_ROTATION, normalizeRotation(deg)).apply()
+        injectPortraitRotation()
+    }
+
     /**
      * 홈 배너 이미지 폴더. 매장 운영자가 파일관리자로 이미지를 넣을 수 있도록
      * 내부 저장소 최상위의 공용 폴더(/sdcard/KioskBanner)를 쓴다.
@@ -231,6 +256,36 @@ class MainActivity : ComponentActivity() {
             systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
+    }
+
+    /**
+     * 회전 보정. 기본(0)에서는 아무것도 하지 않는다 — 가로 화면 그대로 쓴다.
+     *
+     * 액티비티는 landscape 고정이다. 대상 보드가 앱의 세로 요청을 무시하고 어차피 가로 창을
+     * 주기 때문에, 매니페스트로 세로를 만드는 건 불가능하다. 세로 장착 기기에서는 WebView 를
+     * 창 크기(가로) 그대로 둬 하드웨어 surface 잘림을 피하고, 고정 1080×1920 웹 콘텐츠를
+     * CSS 로 회전시켜 세로로 채운다(90 또는 270 — 어느 쪽이 바로 서는지는 물리 장착 방향에 달렸다).
+     * viewport 가 width=device-width(밀도 160 → CSS 1px = 물리 1px)라 좌표가 1:1 로 맞는다.
+     * SPA 라 한 번 주입한 <style> 은 클라이언트 라우팅에도 유지된다.
+     */
+    private fun injectPortraitRotation() {
+        val js = """
+            (function(){
+              var deg = ${currentRotation()}, W = 1080, H = 1920;
+              var s = document.getElementById('__kioskRot');
+              if(!s){ s = document.createElement('style'); s.id='__kioskRot';
+                      document.documentElement.appendChild(s); }
+              if(deg === 0){ s.textContent = ''; return; }
+              // 회전 후 콘텐츠가 1사분면 밖으로 나가므로 각도별로 되돌려 놓는다.
+              var tx = deg === 90 ? H : deg === 180 ? W : 0;
+              var ty = deg === 90 ? 0 : deg === 180 ? H : W;
+              s.textContent =
+                'html,body{margin:0!important;padding:0!important;overflow:hidden!important;background:#000}' +
+                'body{position:fixed!important;top:0;left:0;width:'+W+'px!important;height:'+H+'px!important;' +
+                'transform-origin:0 0!important;transform:translate('+tx+'px,'+ty+'px) rotate('+deg+'deg)!important;}';
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(js, null)
     }
 
     private fun showErrorPage(failedUrl: String, reason: String) {

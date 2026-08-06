@@ -12,6 +12,7 @@ import androidx.core.content.ContextCompat
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
 import com.hoho.android.usbserial.util.SerialInputOutputManager
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -44,6 +45,10 @@ class BillAcceptor(
     @Volatile private var running = false
     private val lineBuffer = StringBuilder()
 
+    // USB 권한 요청 중인 장치. 승인 브로드캐스트가 오면 이 장치로 다시 연결한다.
+    // (null 이면 기존 동작 — CH340 자동 선택)
+    @Volatile private var pendingDeviceId: Int? = null
+
     private fun isConnected() = port != null
 
     private val usbReceiver = object : BroadcastReceiver() {
@@ -52,7 +57,9 @@ class BillAcceptor(
                 ACTION_USB_PERMISSION -> {
                     val granted =
                         intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
-                    if (granted) connect() else emitError("USB 권한이 거부되었습니다")
+                    val requested = pendingDeviceId
+                    pendingDeviceId = null
+                    if (granted) connect(requested) else emitError("USB 권한이 거부되었습니다")
                 }
                 UsbManager.ACTION_USB_DEVICE_DETACHED -> {
                     val detached: UsbDevice? =
@@ -79,23 +86,75 @@ class BillAcceptor(
         runCatching { context.unregisterReceiver(usbReceiver) }
     }
 
-    fun connect() {
+    /**
+     * 연결된 USB 장치 목록. 시리얼 드라이버가 인식하지 못하는 장치도 함께 실어 보낸다
+     * ([supported]=false) — "왜 목록에 안 뜨지" 를 웹 관리화면에서 바로 구분할 수 있게 하기 위함.
+     * [deviceId] 는 USB 재연결 시 바뀌므로 저장하지 말고 매번 조회해서 쓴다.
+     */
+    fun listDevices(): JSONArray {
+        val prober = UsbSerialProber.getDefaultProber()
+        val arr = JSONArray()
+        usbManager.deviceList.values.forEach { dev ->
+            val driver = runCatching { prober.probeDevice(dev) }.getOrNull()
+            arr.put(
+                JSONObject()
+                    .put("deviceId", dev.deviceId)
+                    .put("vendorId", "%04x".format(dev.vendorId))
+                    .put("productId", "%04x".format(dev.productId))
+                    .put("productName", dev.productName ?: "")
+                    .put("manufacturerName", dev.manufacturerName ?: "")
+                    .put("supported", driver != null)
+                    .put("driver", driver?.javaClass?.simpleName ?: "")
+                    .put("portCount", driver?.ports?.size ?: 0)
+                    .put("hasPermission", usbManager.hasPermission(dev))
+                    .put("connected", dev.deviceId == port?.device?.deviceId)
+                    .put("isBillAcceptor", dev.vendorId == VID_CH340)
+            )
+        }
+        return arr
+    }
+
+    /**
+     * [deviceId] 가 null 이면 기존 동작 — CH340(vid 0x1A86) 지폐기를 자동으로 찾아 연결한다.
+     * 다른 USB 시리얼(예: FTDI 카드리더)을 지폐기로 오인/점유하지 않기 위한 기본값이다.
+     *
+     * [deviceId] 를 지정하면 그 장치로 연결한다(웹 관리화면에서 목록을 보고 고르는 경우).
+     * VID 검사를 건너뛰므로 카드리더를 고르면 그대로 점유된다 — 선택 UI 쪽에서
+     * [listDevices] 의 isBillAcceptor 로 구분해 주는 것을 전제로 한다.
+     * 이미 다른 장치에 붙어 있으면 끊고 갈아탄다.
+     */
+    fun connect(deviceId: Int? = null) {
         if (isConnected()) {
-            emitConnection(true)
-            return
+            if (deviceId == null || deviceId == port?.device?.deviceId) {
+                emitConnection(true, port?.device)
+                return
+            }
+            disconnect() // 다른 장치로 갈아타기 — 해제 이벤트까지 내보낸다
         }
-        val drivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
-        if (drivers.isEmpty()) {
-            emitError("USB 시리얼 장치를 찾을 수 없습니다")
-            return
+        val driver = if (deviceId != null) {
+            val dev = usbManager.deviceList.values.firstOrNull { it.deviceId == deviceId }
+                ?: run { emitError("USB 장치를 찾을 수 없습니다 (deviceId=$deviceId)"); return }
+            runCatching { UsbSerialProber.getDefaultProber().probeDevice(dev) }.getOrNull()
+                ?: run {
+                    emitError(
+                        "지원하지 않는 USB 장치입니다 " +
+                            "(${"%04x".format(dev.vendorId)}:${"%04x".format(dev.productId)})"
+                    )
+                    return
+                }
+        } else {
+            val drivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
+            if (drivers.isEmpty()) {
+                emitError("USB 시리얼 장치를 찾을 수 없습니다")
+                return
+            }
+            drivers.firstOrNull { it.device.vendorId == VID_CH340 }
+                ?: run { emitError("지폐기(CH340)를 찾을 수 없습니다"); return }
         }
-        // CH340(vid 0x1A86) 지폐기만 연결한다. 없으면 다른 USB 시리얼(예: FTDI 카드리더)을
-        // 지폐기로 오인/점유하지 않도록 여기서 중단한다.
-        val driver = drivers.firstOrNull { it.device.vendorId == VID_CH340 }
-            ?: run { emitError("지폐기(CH340)를 찾을 수 없습니다"); return }
         val device = driver.device
 
         if (!usbManager.hasPermission(device)) {
+            pendingDeviceId = deviceId
             val pi = PendingIntent.getBroadcast(
                 context, 0,
                 Intent(ACTION_USB_PERMISSION).setPackage(context.packageName),
@@ -151,6 +210,7 @@ class BillAcceptor(
     fun status(): JSONObject = JSONObject()
         .put("connected", isConnected())
         .put("running", running)
+        .put("deviceId", port?.device?.deviceId ?: -1)
 
     // ---------- SerialInputOutputManager.Listener ----------
 
@@ -211,6 +271,7 @@ class BillAcceptor(
     private fun emitConnection(connected: Boolean, device: UsbDevice? = null) {
         val json = JSONObject().put("connected", connected)
         if (device != null) {
+            json.put("deviceId", device.deviceId)
             json.put(
                 "device",
                 "%04x:%04x %s".format(
