@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.view.MotionEvent
 import android.view.WindowManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
@@ -14,6 +15,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
 import androidx.core.view.WindowCompat
@@ -41,6 +43,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private lateinit var webView: WebView
+    private lateinit var touchOverlay: TouchOverlayView
     private lateinit var bridge: KioskBridge
     private val assetLoader by lazy {
         WebViewAssetLoader.Builder()
@@ -103,7 +106,15 @@ class MainActivity : ComponentActivity() {
         }
 
         webView = WebView(this)
-        setContentView(webView)
+        // 터치 피드백 오버레이를 WebView 위에 겹친다. 오버레이는 터치를 받지 않고
+        // (isClickable=false) 그리기만 하므로 웹 입력에는 영향이 없다.
+        touchOverlay = TouchOverlayView(this)
+        setContentView(
+            FrameLayout(this).apply {
+                addView(webView)
+                addView(touchOverlay)
+            }
+        )
 
         // 배너 폴더(/sdcard/KioskBanner)를 미리 만들어 둔다 — 운영자가 파일관리자에서
         // 위치를 찾아 이미지를 넣을 수 있도록. 전체 파일 접근 권한이 있어야 생성/읽기가 된다.
@@ -237,6 +248,22 @@ class MainActivity : ComponentActivity() {
     fun applyRotation(deg: Int) {
         prefs().edit().putInt(PREF_ROTATION, normalizeRotation(deg)).apply()
         injectPortraitRotation()
+    }
+
+    /**
+     * 누른 지점을 오버레이에 넘겨 피드백을 그린다. 이벤트는 그대로 흘려보내므로
+     * (반환값을 가로채지 않음) 웹 입력 동작에는 영향이 없다.
+     *
+     * 손가락이 닿는 순간(DOWN)만 찍는다 — 이동 궤적까지 그리면 스크롤할 때 잔상이 남는다.
+     * 좌표는 창 좌표계라 CSS 회전 각도와 무관하게 실제 손가락 위치에 찍힌다.
+     */
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        val down = ev.actionMasked == MotionEvent.ACTION_DOWN ||
+            ev.actionMasked == MotionEvent.ACTION_POINTER_DOWN
+        if (down && ::touchOverlay.isInitialized) {
+            touchOverlay.addTouch(ev.getX(ev.actionIndex), ev.getY(ev.actionIndex))
+        }
+        return super.dispatchTouchEvent(ev)
     }
 
     /**
